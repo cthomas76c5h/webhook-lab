@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Webhook lab (classic)</title>
+  <link rel="stylesheet" href="classic.css">
+  <script type="module">
+    // Load the polyfill only where invoker commands are missing.
+    if (!('commandForElement' in HTMLButtonElement.prototype)) {
+      import('https://esm.run/invokers-polyfill');
+    }
+  </script>
+  <script type="module" src="classic.js"></script>
+</head>
+<body>
+  <header class="bar">
+    <h1>Webhook lab <span class="tag">prototype</span></h1>
+    <label class="inline">Firm
+      <select id="firm"></select>
+    </label>
+    <div class="actions">
+      <button type="button" id="call" class="primary">Simulate a call</button>
+      <button type="button" id="hangup">Simulate a hang-up</button>
+      <button type="button" commandfor="about" command="show-modal">What is this?</button>
+      <button type="button" id="reset" class="quiet">Reset</button>
+    </div>
+  </header>
+
+  <main>
+    <section aria-labelledby="h-endpoints" class="panel">
+      <div class="panel-head">
+        <h2 id="h-endpoints">Endpoints</h2>
+        <button type="button" commandfor="add-endpoint" command="show-modal">Add endpoint</button>
+      </div>
+      <div id="endpoints" class="cards"></div>
+    </section>
+
+    <section aria-labelledby="h-zapier" class="panel">
+      <div class="panel-head">
+        <h2 id="h-zapier">Zapier app flow</h2>
+        <button type="button" commandfor="zapier-help" command="toggle-popover" class="quiet">How it works</button>
+      </div>
+      <div id="zapier-help" popover>
+        <p>With our own Zapier app, the firm never copies a URL. When they turn their Zap on, Zapier calls
+          <code>POST /v1/hooks</code> with its own hook URL. When they turn it off or delete it, Zapier calls
+          <code>DELETE /v1/hooks/:id</code>. The Test step calls <code>GET /v1/samples/lead.created</code>, so
+          sample data is always complete and nobody has to send a lead at the right moment.</p>
+        <p>These buttons make the same calls Zapier would, with the firm's API key.</p>
+      </div>
+      <dl class="kv">
+        <dt>Firm API key</dt><dd><code id="apikey">—</code></dd>
+      </dl>
+      <div class="actions">
+        <button type="button" id="z-me">Test auth</button>
+        <button type="button" id="z-sub">Turn Zap on (subscribe)</button>
+        <button type="button" id="z-unsub">Turn Zap off (unsubscribe)</button>
+        <button type="button" id="z-samples">Test step (sample leads)</button>
+      </div>
+      <pre id="z-out" class="out" tabindex="0" aria-label="Last API response">Responses show here.</pre>
+    </section>
+
+    <section aria-labelledby="h-deliveries" class="panel wide">
+      <div class="panel-head">
+        <h2 id="h-deliveries">Deliveries</h2>
+        <p class="muted" id="schedule"></p>
+      </div>
+      <div id="deliveries"></div>
+    </section>
+
+    <section aria-labelledby="h-inbox" class="panel wide">
+      <h2 id="h-inbox">Receiver inbox <span class="muted">(what the fake receivers got)</span></h2>
+      <div id="inbox"></div>
+    </section>
+  </main>
+
+  <div id="status" class="visually-hidden" aria-live="polite"></div>
+  <output id="toast" class="toast" popover="manual"></output>
+
+  <dialog id="add-endpoint" closedby="any" aria-labelledby="add-title">
+    <form id="add-form" method="dialog">
+      <h2 id="add-title">Add endpoint</h2>
+      <div class="field">
+        <label for="ep-name">Name</label>
+        <input id="ep-name" name="name" required data-error="ep-name-error" autocomplete="off">
+        <span id="ep-name-error" class="error-msg">Give the endpoint a name.</span>
+      </div>
+      <div class="field">
+        <label for="ep-url">Address</label>
+        <input id="ep-url" name="url" type="url" required data-error="ep-url-error" autocomplete="off"
+               placeholder="https://hooks.zapier.com/hooks/catch/…">
+        <span id="ep-url-error" class="error-msg">Enter a full web address.</span>
+        <span id="ep-url-server" class="error-msg server" hidden></span>
+      </div>
+      <fieldset>
+        <legend>Or point it at a fake receiver</legend>
+        <div id="modes" class="modes"></div>
+      </fieldset>
+      <div class="actions end">
+        <button type="button" commandfor="add-endpoint" command="close">Cancel</button>
+        <button type="submit" value="save" class="primary">Add endpoint</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="template-dialog" closedby="closerequest" aria-labelledby="tpl-title" class="wide-dialog">
+    <form id="tpl-form" method="dialog">
+      <h2 id="tpl-title">Body template</h2>
+      <p class="muted">Leave empty to send the standard body. Use <code>{{field}}</code> and
+        <code>{{field|default:'text'}}</code>. The template is checked against a full and a sparse lead before it saves.</p>
+      <div class="split">
+        <div>
+          <label for="tpl">Template</label>
+          <textarea id="tpl" spellcheck="false"></textarea>
+          <div id="chips" class="chips" aria-label="Insert a field"></div>
+        </div>
+        <div>
+          <div class="row">
+            <span id="preview-label">What the receiver gets</span>
+            <label class="inline">Sample
+              <select id="tpl-variant">
+                <option value="full">Full lead</option>
+                <option value="sparse">Hang-up (sparse)</option>
+              </select>
+            </label>
+          </div>
+          <pre id="tpl-preview" class="out" aria-labelledby="preview-label"></pre>
+          <ul id="tpl-errors" class="errors"></ul>
+        </div>
+      </div>
+      <div class="actions end">
+        <button type="button" id="tpl-preset">Insert CRM-ready preset</button>
+        <button type="button" commandfor="template-dialog" command="close">Cancel</button>
+        <button type="submit" value="save" class="primary">Save template</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="about" closedby="any" aria-labelledby="about-title">
+    <h2 id="about-title">What this lab explores</h2>
+    <ul>
+      <li><strong>At least once, with dedupe.</strong> Every retry carries the same <code>webhook-id</code>.</li>
+      <li><strong>Signed requests.</strong> Standard Webhooks headers; rotate a secret and watch both signatures go out.</li>
+      <li><strong>Clear failure rules.</strong> 2xx done; 408/425/429/5xx/no answer retry with backoff and Retry-After; 410 switches the endpoint off; other 4xx and 3xx stop at once.</li>
+      <li><strong>Free-form bodies.</strong> Templates, checked against a full and a sparse lead.</li>
+      <li><strong>No URL hand-off.</strong> The Zapier app flow subscribes and unsubscribes by itself.</li>
+      <li><strong>Safe addresses.</strong> https only and no private networks (localhost is allowed for the fake receivers).</li>
+    </ul>
+    <p class="muted">Time runs fast: retries that take hours in real life take seconds here.</p>
+    <div class="actions end">
+      <button type="button" commandfor="about" command="close" class="primary">Close</button>
+    </div>
+  </dialog>
+</body>
+</html>

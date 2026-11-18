@@ -1,0 +1,15 @@
+{
+  "name": "webhook-lab",
+  "version": "0.0.0",
+  "private": true,
+  "description": "PROTOTYPE: explore how to deliver leads to webhooks (Zapier and others) properly.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "start": "node src/server.ts",
+    "dev": "node --watch src/server.ts",
+    "test": "node --test \"test/*.test.ts\""
+  }
+}
