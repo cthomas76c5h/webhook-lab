@@ -82,6 +82,11 @@ function SetupRecord({ setup, state, act }) {
             </label>
           </div>
           <${MappingEditor} setup=${setup} act=${act} />
+          ${setup.revising && html`
+            <div className="row">
+              <button className="btn danger" onClick=${() => { if (confirm(`Discard draft version ${setup.version}? The setup goes back to live version ${setup.activeVersion}; the draft stays in the history.`)) act(() => api('POST', `/admin/setups/${setup.id}/discard`), 'Draft discarded'); }}>Discard draft version ${setup.version}</button>
+              <span className="small muted">Live leads are unaffected either way.</span>
+            </div>`}
         <//>
         <${Check} n=${2} title="Client connects" done=${st !== 'Connection needed'} active=${st === 'Connection needed'}>
           ${st === 'Connection needed'

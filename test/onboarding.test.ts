@@ -63,3 +63,32 @@ test('editing a live setup makes a draft revision; live leads keep the active on
   assert.equal(ep.template, rowsToTemplate(rows));
   assert.equal(stateOf(s).state, 'Live');
 });
+
+test('discarding a draft returns to the live revision and never reuses its version number', () => {
+  const firm = addFirm('Discard LLP');
+  call('POST /admin/setups', [], { firmId: firm.id, destination: 'webhook', crm: 'Clio Grow', recipe: 'notify-staff' });
+  const s = [...setups.values()].find((x) => x.firmId === firm.id)!;
+  call('POST /client/setups/:token/connect', [s.token], { url: 'http://localhost:0/receiver/ok' });
+  approveAndTest(s.id);
+  call('POST /admin/setups/:id/go-live', [s.id]);
+  const liveRows = structuredClone(s.rows);
+  const ep = db.endpoints.get(s.endpointId!)!;
+  assert.throws(() => call('POST /admin/setups/:id/discard', [s.id]), (e: Fail) => e.status === 409, 'nothing to discard');
+
+  // Draft v2, approved by the client, then discarded.
+  call('PATCH /admin/setups/:id', [s.id], { rows: [...s.rows, { from: 'email', to: 'Email' }] });
+  call('POST /admin/setups/:id/send', [s.id]);
+  call('POST /client/setups/:token/decision', [s.token], { decision: 'approved', by: 'Partner', version: 2 });
+  call('POST /admin/setups/:id/discard', [s.id]);
+  assert.equal(s.version, 1);
+  assert.deepEqual(s.rows, liveRows);
+  assert.equal(stateOf(s).state, 'Live');
+  assert.equal(ep.template, rowsToTemplate(liveRows));
+  // A stale review page cannot approve the live version again.
+  assert.throws(() => call('POST /client/setups/:token/decision', [s.token], { decision: 'approved', by: 'Partner', version: 1 }), (e: Fail) => e.status === 409);
+
+  // The next draft is v3, and v2's approval does not cover it.
+  call('PATCH /admin/setups/:id', [s.id], { rows: [...liveRows, { from: 'call_type', to: 'Matter' }] });
+  assert.equal(s.version, 3);
+  assert.equal(stateOf(s).state, 'Draft');
+});

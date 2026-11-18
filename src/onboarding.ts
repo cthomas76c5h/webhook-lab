@@ -26,6 +26,9 @@ export interface Setup {
   recipe: string;
   rows: MapRow[];
   version: number;
+  // Highest version ever issued. A discarded draft's number is never reused,
+  // so an approval recorded against it can never cover a later draft.
+  lastVersion: number;
   sentVersion: number | null; // the version the client was asked to approve
   endpointId: string | null;
   testDeliveryId: string | null;
@@ -95,6 +98,7 @@ export function createSetup(input: { firmId: string; destination: Destination; c
     recipe: input.recipe,
     rows: input.rows ?? structuredClone(RECIPE_ROWS[input.recipe] ?? []),
     version: 1,
+    lastVersion: 1,
     sentVersion: null,
     endpointId: null,
     testDeliveryId: null,
@@ -152,7 +156,8 @@ export function viewSetup(s: Setup) {
  * endpoint is not touched; real leads keep the active revision until activation.
  */
 function bump(s: Setup, what: string, who: SetupEvent['who']): void {
-  s.version += 1;
+  s.lastVersion += 1;
+  s.version = s.lastVersion;
   s.testDeliveryId = null;
   s.clientConfirmedAt = null;
   const live = s.active ? `; live stays on version ${s.active.version} until this one is approved, tested and activated` : '';
@@ -168,6 +173,19 @@ function activate(s: Setup): void {
   });
   s.active = { version: s.version, recipe: s.recipe, crm: s.crm, rows: structuredClone(s.rows), at: Date.now() };
   log(s, 'operator', was === undefined ? `Went live on approved version ${s.version}` : `Activated approved version ${s.version} (replaces version ${was})`);
+}
+
+/** Drop the draft revision and point the setup back at the live one. The draft stays in history. */
+function discardDraft(s: Setup): void {
+  const draft = s.version;
+  const a = s.active!;
+  s.recipe = a.recipe;
+  s.crm = a.crm;
+  s.rows = structuredClone(a.rows);
+  s.version = a.version;
+  s.testDeliveryId = null;
+  s.clientConfirmedAt = null;
+  log(s, 'operator', `Discarded draft version ${draft}; back to live version ${a.version}`);
 }
 
 export function sampleFor(s: Setup) {
@@ -255,6 +273,13 @@ export function registerOnboarding(deps: {
     json(res, 200, view(s));
   });
 
+  route('POST', '/admin/setups/:id/discard', (_q, res, [id]) => {
+    const s = byId(id!);
+    if (!s.active || s.active.version === s.version) fail(409, 'there is no draft revision to discard');
+    discardDraft(s);
+    json(res, 200, view(s));
+  });
+
   // ----- The client's secure link -----
 
   route('GET', '/client/setups/:token', (_q, res, [token]) => {
@@ -288,6 +313,7 @@ export function registerOnboarding(deps: {
     const comment = String(b.comment ?? '').trim();
     if (decision === 'changes' && !comment) fail(422, 'say what should change');
     if (Number(b.version) !== s.version) fail(409, 'the setup changed while you were reading; reload to see the new version');
+    if (s.active?.version === s.version) fail(409, 'nothing is awaiting your approval; this version is already live');
     s.approvals.unshift({ version: s.version, decision, by, comment, at: Date.now() });
     log(s, 'client', decision === 'approved' ? `${by} approved version ${s.version}` : `${by} asked for changes: ${comment}`);
     json(res, 200, { ok: true });
