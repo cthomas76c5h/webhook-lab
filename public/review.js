@@ -7,6 +7,34 @@ import { ago, api, html, RECIPES, SOURCE_FIELDS, useToast } from './common.js';
 
 const token = new URLSearchParams(location.search).get('t') ?? '';
 
+const shared = (rows) => rows.map((r) => `${SOURCE_FIELDS[r.from] ?? r.from} → ${r.to}`);
+
+/** Live setup vs the proposed revision, in business terms (no payloads). */
+function ChangeSummary({ s }) {
+  const was = s.active;
+  const before = shared(was.rows);
+  const after = shared(s.rows);
+  const added = after.filter((x) => !before.includes(x));
+  const removed = before.filter((x) => !after.includes(x));
+  const cell = (a, b) => (a === b ? html`<td className="muted">Unchanged</td>` : html`<td><strong>${b}</strong></td>`);
+  return html`
+    <section className="step-box">
+      <h2>What would change</h2>
+      <table className="share">
+        <thead><tr><th>Setting</th><th>Current (live, version ${was.version})</th><th>Proposed (version ${s.version})</th></tr></thead>
+        <tbody>
+          <tr><td>Destination</td><td>${was.crm}</td>${cell(was.crm, s.crm)}</tr>
+          <tr><td>Action</td><td>${RECIPES[was.recipe]?.label ?? was.recipe}</td>${cell(RECIPES[was.recipe]?.label ?? was.recipe, RECIPES[s.recipe]?.label ?? s.recipe)}</tr>
+          <tr><td>Information shared</td><td>${before.length} fields</td>
+            ${added.length || removed.length
+              ? html`<td>${added.map((x) => html`<div key=${'a' + x} className="ok">+ ${x}</div>`)}${removed.map((x) => html`<div key=${'r' + x} className="bad">− ${x}</div>`)}</td>`
+              : html`<td className="muted">Unchanged</td>`}</tr>
+        </tbody>
+      </table>
+      <p className="muted small">Your current setup keeps running until you approve this change and it is tested.</p>
+    </section>`;
+}
+
 function Review() {
   const [s, setS] = useState(null);
   const [error, setError] = useState('');
@@ -22,6 +50,7 @@ function Review() {
   if (!s) return html`<p className="boot">Loading…</p>`;
 
   const mine = s.approvals.find((a) => a.version === s.version);
+  const onActive = s.live && !s.revising; // nothing awaiting the client's decision
   const decide = async (decision) => {
     const ok = await act(() => api('POST', `/client/setups/${token}/decision`, { decision, by, comment, version: s.version }), decision === 'approved' ? 'Thank you: setup approved' : 'Sent to your Answering AI contact');
     if (ok) { setComment(''); load(); }
@@ -38,10 +67,10 @@ function Review() {
         <div className="card-head">
           <div className="grow">
             <h1>${RECIPES[s.recipe]?.label ?? 'New intakes'} → ${s.crm}</h1>
-            <p className="muted">${s.firmName} · ${s.live ? 'Live' : `Proposed setup, version ${s.version}`}</p>
+            <p className="muted">${s.firmName} · ${onActive ? 'Live' : s.revising ? `Live on version ${s.activeVersion} · proposed change, version ${s.version}` : `Proposed setup, version ${s.version}`}</p>
           </div>
-          <span className=${`badge ${s.live ? 'ok' : mine?.decision === 'approved' ? 'ok' : mine ? 'bad' : 'muted'}`}>
-            ${s.live ? 'Live' : mine?.decision === 'approved' ? 'Approved' : mine ? 'Changes requested' : s.connected ? 'Awaiting your approval' : 'Connect first'}
+          <span className=${`badge ${onActive ? 'ok' : mine?.decision === 'approved' ? 'ok' : mine ? 'bad' : 'muted'}`}>
+            ${onActive ? 'Live' : mine?.decision === 'approved' ? 'Approved' : mine ? 'Changes requested' : s.connected ? 'Awaiting your approval' : 'Connect first'}
           </span>
         </div>
 
@@ -60,8 +89,10 @@ function Review() {
                   <p className="muted small">Lab: use ${location.origin}/receiver/ok</p>`}
           </section>`}
 
+        ${s.revising && html`<${ChangeSummary} s=${s} />`}
+
         <section className="step-box">
-          <h2>${s.connected ? '' : '2. '}Review what happens</h2>
+          <h2>${s.connected ? '' : '2. '}Review what happens${s.revising ? ' after the change' : ''}</h2>
           <dl className="facts wide-facts">
             <dt>Destination</dt><dd>${s.crm} ${s.destination !== 'webhook' ? html`<span className="muted">(through Zapier)</span>` : ''}</dd>
             <dt>When</dt><dd>After each qualified call</dd>
@@ -75,7 +106,7 @@ function Review() {
           ${!s.enforced && html`<p className="muted small">Your Answering AI contact sets these fields up in Zapier with you. We confirm Zapier receives each intake; please check the first ones arrive in ${s.crm}.</p>`}
         </section>
 
-        ${!s.live && s.connected && html`
+        ${!onActive && s.connected && html`
           <section className="step-box">
             <h2>${s.connected ? '' : '3. '}Approve or ask for changes</h2>
             ${mine && html`<p className=${mine.decision === 'approved' ? 'ok' : 'bad'}>${mine.decision === 'approved' ? `Approved by ${mine.by} ${ago(mine.at)}.` : `You asked: “${mine.comment}”. Your contact will update the setup.`}</p>`}

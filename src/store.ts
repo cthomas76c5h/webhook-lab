@@ -64,6 +64,9 @@ export interface Delivery {
   eventId: string;
   endpointId: string;
   test: boolean;
+  // Set on a test of a draft revision: the body template under test. Absent:
+  // the endpoint's own (live) template.
+  template?: string | null;
   status: DeliveryStatus;
   reason: string | null;
   attempts: Attempt[];
@@ -162,14 +165,15 @@ export function rotateSecret(endpointId: string, overlapMs: number): Endpoint | 
 }
 
 /** Record the event once, then fan out one delivery per active subscribed endpoint. */
-export function publish(firmId: string, data: Record<string, unknown>, opts: { test?: boolean; onlyEndpointId?: string } = {}): LeadEvent {
+export function publish(firmId: string, data: Record<string, unknown>, opts: { test?: boolean; onlyEndpointId?: string; template?: string | null } = {}): LeadEvent {
   const event: LeadEvent = { id: id('evt'), firmId, type: 'lead.created', createdAt: Date.now(), data };
   db.events.set(event.id, event);
   for (const ep of db.endpoints.values()) {
     if (ep.firmId !== firmId || ep.status !== 'active' || !ep.events.includes(event.type)) continue;
     if (opts.onlyEndpointId && ep.id !== opts.onlyEndpointId) continue;
     if (ep.stage === 'setup' && !opts.test) continue;
-    enqueue(event.id, ep.id, opts.test ?? false);
+    const d = enqueue(event.id, ep.id, opts.test ?? false);
+    if (opts.template !== undefined) d.template = opts.template;
   }
   changed();
   return event;

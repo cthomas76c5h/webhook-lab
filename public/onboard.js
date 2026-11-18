@@ -40,7 +40,7 @@ function MappingEditor({ setup, act }) {
       <div className="row">
         <button className="btn" onClick=${() => setRows([...rows, { from: 'phone', to: 'Phone' }])}>Add field</button>
         <button className="btn primary" disabled=${!dirty} onClick=${() => act(() => api('PATCH', `/admin/setups/${setup.id}`, { rows }), 'Mapping saved as a new version')}>Save mapping</button>
-        ${dirty && html`<span className="small warn">Saving makes a new version; the client must approve it again.</span>`}
+        ${dirty && html`<span className="small warn">Saving makes a new version; the client must approve it again.${setup.live ? ` Live leads keep version ${setup.activeVersion} until you activate the new one.` : ''}</span>`}
       </div>
     </div>`;
 }
@@ -51,6 +51,7 @@ function SetupRecord({ setup, state, act }) {
   const approved = setup.approvals.find((a) => a.version === setup.version && a.decision === 'approved');
   const changes = setup.approvals.find((a) => a.version === setup.version && a.decision === 'changes');
   const st = setup.state;
+  const onActive = st === 'Live'; // live and no draft revision ahead of it
   const idx = (s) => ['Connection needed', 'Draft', 'Awaiting client approval', 'Changes requested', 'Ready to test', 'Testing', 'Test failed', 'Test accepted', 'Ready to go live', 'Live'].indexOf(s);
 
   return html`
@@ -58,7 +59,7 @@ function SetupRecord({ setup, state, act }) {
       <div className="card-head">
         <div className="grow">
           <h2>${setup.firmName}</h2>
-          <p className="muted small">${setup.crm} · ${DESTINATIONS[setup.destination]} · ${RECIPES[setup.recipe]?.label} · version ${setup.version}</p>
+          <p className="muted small">${setup.crm} · ${DESTINATIONS[setup.destination]} · ${RECIPES[setup.recipe]?.label} · version ${setup.version}${setup.revising ? ` (draft) · live on version ${setup.activeVersion}` : ''}</p>
         </div>
         <span className=${`badge ${setup.tone}`}>${st}</span>
       </div>
@@ -71,15 +72,16 @@ function SetupRecord({ setup, state, act }) {
       </div>
 
       <ol className="checklist">
-        <${Check} n=${1} title="Draft the configuration" done=${true} active=${st === 'Draft' || st === 'Changes requested'}>
+        <${Check} n=${1} title=${setup.live ? 'Draft a revision' : 'Draft the configuration'} done=${true} active=${st === 'Draft' || st === 'Changes requested'}>
+          ${onActive && html`<p className="small muted">Changing the recipe or mapping makes a draft revision. Live leads keep version ${setup.activeVersion} until the revision is approved, tested and activated.</p>`}
           <div className="row">
             <label className="field small">Recipe
-              <select value=${setup.recipe} disabled=${setup.live} onChange=${(e) => act(() => api('PATCH', `/admin/setups/${setup.id}`, { recipe: e.target.value }), 'Recipe changed')}>
+              <select value=${setup.recipe} onChange=${(e) => act(() => api('PATCH', `/admin/setups/${setup.id}`, { recipe: e.target.value }), 'Recipe changed')}>
                 ${Object.entries(RECIPES).map(([k, r]) => html`<option key=${k} value=${k}>${r.label}</option>`)}
               </select>
             </label>
           </div>
-          ${!setup.live && html`<${MappingEditor} setup=${setup} act=${act} />`}
+          <${MappingEditor} setup=${setup} act=${act} />
         <//>
         <${Check} n=${2} title="Client connects" done=${st !== 'Connection needed'} active=${st === 'Connection needed'}>
           ${st === 'Connection needed'
@@ -96,8 +98,8 @@ function SetupRecord({ setup, state, act }) {
               </button>
             </div>`}
         <//>
-        <${Check} n=${4} title="Test with a real delivery" done=${test?.status === 'delivered' && !!setup.clientConfirmedAt} active=${idx(st) >= idx('Ready to test') && !setup.live}>
-          ${approved && !setup.live && html`<div className="row"><button className="btn" onClick=${() => act(() => api('POST', `/admin/setups/${setup.id}/test`), 'Test lead sent')}>${test ? 'Send another test' : 'Send test lead'}</button></div>`}
+        <${Check} n=${4} title="Test with a real delivery" done=${test?.status === 'delivered' && !!setup.clientConfirmedAt} active=${idx(st) >= idx('Ready to test') && !onActive}>
+          ${approved && !onActive && html`<div className="row"><button className="btn" onClick=${() => act(() => api('POST', `/admin/setups/${setup.id}/test`), 'Test lead sent')}>${test ? 'Send another test' : 'Send test lead'}</button></div>`}
           ${test && html`<${Journey} d=${test} />`}
           ${test?.status === 'failed' && html`<div className="errbox"><strong>⚠ ${problem(test)}</strong><span>${setup.enforced ? 'Fix the mapping in step 1 (it makes a new version for the client to approve), then test again.' : 'Check the Zap with the client, then test again.'}</span></div>`}
           ${test?.status === 'delivered' && !setup.clientConfirmedAt && html`
@@ -107,11 +109,14 @@ function SetupRecord({ setup, state, act }) {
             </div>`}
           ${setup.clientConfirmedAt && html`<p className="small ok">Client confirmed the record in ${setup.crm}.</p>`}
         <//>
-        <${Check} n=${5} title="Go live" done=${setup.live} active=${st === 'Ready to go live'}>
-          ${setup.live
-            ? html`<p className="small ok">Live. Real leads now go here; watch the Delivery Center.</p>`
-            : html`<button className="btn primary" disabled=${st !== 'Ready to go live'} onClick=${() => act(() => api('POST', `/admin/setups/${setup.id}/go-live`), `${setup.firmName} is live`)}>Confirm go-live</button>
-                <p className="muted small">Until then only test leads reach this destination.</p>`}
+        <${Check} n=${5} title=${setup.live ? 'Activate' : 'Go live'} done=${onActive} active=${st === 'Ready to go live'}>
+          ${onActive
+            ? html`<p className="small ok">Live on version ${setup.activeVersion}. Real leads now go here; watch the Delivery Center.</p>`
+            : setup.live
+              ? html`<button className="btn primary" disabled=${st !== 'Ready to go live'} onClick=${() => act(() => api('POST', `/admin/setups/${setup.id}/go-live`), `Version ${setup.version} is live`)}>Activate version ${setup.version}</button>
+                  <p className="muted small">Until then real leads keep using version ${setup.activeVersion}.</p>`
+              : html`<button className="btn primary" disabled=${st !== 'Ready to go live'} onClick=${() => act(() => api('POST', `/admin/setups/${setup.id}/go-live`), `${setup.firmName} is live`)}>Confirm go-live</button>
+                  <p className="muted small">Until then only test leads reach this destination.</p>`}
         <//>
       </ol>
 
@@ -162,7 +167,7 @@ function Cockpit() {
   const queue = useMemo(() => (state?.setups ?? []).slice().sort((a, b) => order.indexOf(a.state) - order.indexOf(b.state)), [state]);
   if (!state) return html`<p className="boot">Loading…</p>`;
   const sel = state.setups.find((s) => s.id === selected) ?? null;
-  const counts = { open: queue.filter((s) => !s.live).length, mine: queue.filter((s) => ['Changes requested', 'Test failed', 'Ready to go live', 'Test accepted', 'Ready to test', 'Draft'].includes(s.state)).length, live: queue.filter((s) => s.live).length };
+  const counts = { open: queue.filter((s) => s.state !== 'Live').length, mine: queue.filter((s) => ['Changes requested', 'Test failed', 'Ready to go live', 'Test accepted', 'Ready to test', 'Draft'].includes(s.state)).length, live: queue.filter((s) => s.live).length };
 
   return html`
     <div className="shell">
@@ -198,7 +203,7 @@ function Cockpit() {
                     <tr key=${s.id} className=${s.id === selected ? 'on' : ''} onClick=${() => setSelected(s.id)}>
                       <td className="ellipsis"><strong>${s.firmName}</strong></td>
                       <td>${s.crm}</td>
-                      <td><span className=${`badge ${s.tone}`}>${s.state}</span></td>
+                      <td><span className=${`badge ${s.tone}`}>${s.state}</span>${s.revising && html` <span className="muted small">(live on v${s.activeVersion})</span>`}</td>
                       <td className="muted">${s.next}</td>
                     </tr>`)}
                 </tbody>

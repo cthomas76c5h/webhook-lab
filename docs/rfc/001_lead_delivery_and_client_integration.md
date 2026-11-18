@@ -173,9 +173,24 @@ Only then does it begin receiving production leads.
 
 ### Proposed onboarding states
 
-`Draft → Connection Needed → Awaiting Approval → Ready to Test → Test Accepted → Client Confirmed → Live`
+`Connection Needed → Draft → Awaiting Approval → Ready to Test → Testing → Test Accepted → Ready to Go Live → Live`
 
-Connection errors and review requests may return the setup to an earlier state. Canceled setups are retained in audit history.
+| State | Meaning | Next action |
+|---|---|---|
+| Connection Needed | The draft configuration exists (Step 1), but the client has not connected yet. The operator can still edit it. | Send the client the secure link |
+| Draft | Connected; this revision has not been sent for approval. | Send for approval |
+| Awaiting Approval | The client has been asked to approve this revision. | Follow up |
+| Changes Requested | The client asked for changes to this revision. | Edit, which creates a new revision, then resend |
+| Ready to Test | The client approved this revision. | Send a test lead |
+| Testing | The test lead is in flight. | Wait |
+| Test Failed | The receiver refused or did not accept the test lead. | Fix the mapping or the external setup, then retest |
+| Test Accepted | The receiver accepted the test lead. | Client confirms the record in the CRM |
+| Ready to Go Live | Approved, tested, and confirmed by the client. | Activate |
+| Live | Production leads use this revision. | Monitor in the Delivery Center |
+
+Any edit creates a new revision and returns the setup to Draft. Approvals and test results apply to a single revision and do not carry over to the next one.
+
+After go-live, the same states apply to a draft revision, and the installation stays Live on its active revision until the draft is activated (see Section 5). Canceled setups are retained in audit history.
 
 Delivery health is tracked separately from onboarding status.
 

@@ -14,6 +14,8 @@ export interface MapRow { from: string; to: string }
 
 export interface SetupEvent { at: number; who: 'operator' | 'client' | 'system'; what: string }
 export interface Approval { version: number; decision: 'approved' | 'changes'; by: string; comment: string; at: number }
+/** The configuration real leads use. Edits make a draft revision; this stays put until activation. */
+export interface ActiveRevision { version: number; recipe: string; crm: string; rows: MapRow[]; at: number }
 
 export interface Setup {
   id: string;
@@ -28,7 +30,8 @@ export interface Setup {
   endpointId: string | null;
   testDeliveryId: string | null;
   clientConfirmedAt: number | null; // "we saw the record in the CRM", said on the call
-  live: boolean;
+  active: ActiveRevision | null; // null until first go-live
+  // recipe/crm/rows/version above are the latest revision: the active one, or a draft ahead of it.
   approvals: Approval[];
   history: SetupEvent[];
   createdAt: number;
@@ -64,7 +67,7 @@ const log = (s: Setup, who: SetupEvent['who'], what: string) => {
 };
 
 export function stateOf(s: Setup): { state: string; next: string; tone: 'ok' | 'warn' | 'bad' | 'muted' } {
-  if (s.live) return { state: 'Live', next: 'Watch the Delivery Center', tone: 'ok' };
+  if (s.active?.version === s.version) return { state: 'Live', next: 'Watch the Delivery Center', tone: 'ok' };
   if (!s.endpointId) return { state: 'Connection needed', next: 'Send the secure link', tone: 'warn' };
   const approved = s.approvals.find((a) => a.version === s.version && a.decision === 'approved');
   const changes = s.approvals.find((a) => a.version === s.version && a.decision === 'changes');
@@ -79,7 +82,7 @@ export function stateOf(s: Setup): { state: string; next: string; tone: 'ok' | '
   if (test.status === 'failed' || test.status === 'cancelled') return { state: 'Test failed', next: 'Inspect the mapping', tone: 'bad' };
   if (test.status !== 'delivered') return { state: 'Testing', next: 'Wait a moment', tone: 'warn' };
   if (!s.clientConfirmedAt) return { state: 'Test accepted', next: 'Client confirms the record in the CRM', tone: 'warn' };
-  return { state: 'Ready to go live', next: 'Confirm go-live', tone: 'ok' };
+  return { state: 'Ready to go live', next: s.active ? `Activate version ${s.version}` : 'Confirm go-live', tone: 'ok' };
 }
 
 export function createSetup(input: { firmId: string; destination: Destination; crm: string; recipe: string; rows?: MapRow[]; note?: string }): Setup {
@@ -96,7 +99,7 @@ export function createSetup(input: { firmId: string; destination: Destination; c
     endpointId: null,
     testDeliveryId: null,
     clientConfirmedAt: null,
-    live: false,
+    active: null,
     approvals: [],
     history: [],
     createdAt: Date.now(),
@@ -121,22 +124,50 @@ function connect(s: Setup, url: string, source: 'manual' | 'rest-hook'): void {
 
 function sendTest(s: Setup): void {
   const firm = db.firms.get(s.firmId)!;
-  const event = publish(firm.id, sampleLead(firm.name, 0) as unknown as Record<string, unknown>, { test: true, onlyEndpointId: s.endpointId! });
+  // The test carries the revision's own body, so a draft is tested without touching the live template.
+  const event = publish(firm.id, sampleLead(firm.name, 0) as unknown as Record<string, unknown>, {
+    test: true,
+    onlyEndpointId: s.endpointId!,
+    template: enforced(s) ? rowsToTemplate(s.rows) : undefined,
+  });
   s.testDeliveryId = [...db.deliveries.values()].find((d) => d.eventId === event.id)?.id ?? null;
   s.clientConfirmedAt = null;
 }
 
 export function viewSetup(s: Setup) {
-  return { ...s, ...stateOf(s), enforced: enforced(s), firmName: db.firms.get(s.firmId)?.name ?? '', sample: sampleFor(s) };
+  return {
+    ...s,
+    ...stateOf(s),
+    live: !!s.active,
+    activeVersion: s.active?.version ?? null,
+    revising: !!s.active && s.active.version !== s.version,
+    enforced: enforced(s),
+    firmName: db.firms.get(s.firmId)?.name ?? '',
+    sample: sampleFor(s),
+  };
 }
 
-/** A new configuration version: earlier approvals no longer cover it. */
+/**
+ * A new configuration version: earlier approvals no longer cover it. The
+ * endpoint is not touched; real leads keep the active revision until activation.
+ */
 function bump(s: Setup, what: string, who: SetupEvent['who']): void {
   s.version += 1;
   s.testDeliveryId = null;
   s.clientConfirmedAt = null;
-  if (s.endpointId && enforced(s)) updateEndpoint(s.endpointId, { template: rowsToTemplate(s.rows) });
-  log(s, who, `${what} (now version ${s.version})`);
+  const live = s.active ? `; live stays on version ${s.active.version} until this one is approved, tested and activated` : '';
+  log(s, who, `${what} (now version ${s.version}${live})`);
+}
+
+function activate(s: Setup): void {
+  const was = s.active?.version;
+  updateEndpoint(s.endpointId!, {
+    stage: 'live',
+    recipe: s.recipe,
+    ...(enforced(s) ? { template: rowsToTemplate(s.rows) } : {}),
+  });
+  s.active = { version: s.version, recipe: s.recipe, crm: s.crm, rows: structuredClone(s.rows), at: Date.now() };
+  log(s, 'operator', was === undefined ? `Went live on approved version ${s.version}` : `Activated approved version ${s.version} (replaces version ${was})`);
 }
 
 export function sampleFor(s: Setup) {
@@ -173,7 +204,7 @@ export function registerOnboarding(deps: {
       destination: (['zapier-catch', 'zapier-app', 'webhook'].includes(String(b.destination)) ? b.destination : 'zapier-catch') as Destination,
       crm: String(b.crm || 'Clio Grow'),
       recipe: String(b.recipe || 'create-intake'),
-      rows: from ? structuredClone(from.rows) : undefined,
+      rows: from ? structuredClone(from.active?.rows ?? from.rows) : undefined, // a live setup's proven mapping, not its draft
       note: from ? `Draft created by cloning the mapping of ${db.firms.get(from.firmId)?.name}` : undefined,
     });
     json(res, 201, view(s));
@@ -220,9 +251,7 @@ export function registerOnboarding(deps: {
   route('POST', '/admin/setups/:id/go-live', (_q, res, [id]) => {
     const s = byId(id!);
     if (stateOf(s).state !== 'Ready to go live') fail(409, `not ready: ${stateOf(s).state}`);
-    updateEndpoint(s.endpointId!, { stage: 'live' });
-    s.live = true;
-    log(s, 'operator', `Went live on approved version ${s.version}`);
+    activate(s);
     json(res, 200, view(s));
   });
 
@@ -275,7 +304,7 @@ export function seedSetups(firms: { id: string; name: string }[], origin: string
   live.sentVersion = 1;
   live.approvals.push({ version: 1, decision: 'approved', by: 'Office manager', comment: '', at: Date.now() });
   live.clientConfirmedAt = Date.now();
-  live.live = true;
+  live.active = { version: 1, recipe: live.recipe, crm: live.crm, rows: structuredClone(live.rows), at: Date.now() };
   live.history.unshift({ at: Date.now(), who: 'system', what: 'Imported from the V1 Catch Hook setup' });
 
   // Firm B: approved, but its test is refused (missing Phone in the body).

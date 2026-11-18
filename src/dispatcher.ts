@@ -19,12 +19,12 @@ export interface DispatcherOptions {
   userAgent: string;
 }
 
-export function buildBody(endpoint: Endpoint, eventId: string): { ok: true; body: string } | { ok: false; reason: string } {
+export function buildBody(endpoint: Endpoint, eventId: string, template: string | null = endpoint.template): { ok: true; body: string } | { ok: false; reason: string } {
   const event = db.events.get(eventId);
   if (!event) return { ok: false, reason: 'event missing' };
-  if (!endpoint.template) return { ok: true, body: JSON.stringify(standardBody(event)) };
+  if (!template) return { ok: true, body: JSON.stringify(standardBody(event)) };
   const firm = db.firms.get(endpoint.firmId);
-  const r = renderTemplate(endpoint.template, templateVars(event, firm?.name ?? ''));
+  const r = renderTemplate(template, templateVars(event, firm?.name ?? ''));
   return r.ok ? { ok: true, body: r.body } : { ok: false, reason: `template: ${r.errors.join('; ')}` };
 }
 
@@ -46,7 +46,7 @@ async function attempt(delivery: Delivery, opts: DispatcherOptions): Promise<voi
   if (!endpoint) return finish('cancelled', 'endpoint removed');
   if (endpoint.status !== 'active') return finish('cancelled', `endpoint disabled: ${endpoint.disabledReason}`);
 
-  const built = buildBody(endpoint, delivery.eventId);
+  const built = buildBody(endpoint, delivery.eventId, delivery.template === undefined ? endpoint.template : delivery.template);
   if (!built.ok) return finish('failed', built.reason); // a broken template never fixes itself on retry
 
   const n = delivery.attempts.length + 1;
