@@ -367,11 +367,11 @@ All operational actions must be recorded.
 
 Extend the existing application rather than creating an independent integration platform immediately.
 
-**Existing repositories:**
+**Affected components:**
 
-- `vapi-receptionist`: portal API, database migrations, worker, delivery logic, operator UI.
-- `airi-client-portal`: client integration review, authorization, and approval screens.
-- New small `answering-ai-zapier` repository: private Zapier application definition.
+- **Core application** (existing): portal API, database migrations, worker, delivery logic, operator UI.
+- **Client portal** (existing): client integration review, authorization, and approval screens.
+- **Zapier app** (new, small): private Zapier application definition.
 
 The existing voice-agent API remains unchanged:
 
