@@ -1,7 +1,8 @@
 # Lead integrations roadmap: issue drafts
 
-Drafts for `RingSavvyApps/vapi-receptionist`, in the layout of
-`docs/agents/issue-tracker.md`. Not filed yet. One issue per committed phase;
+Drafts for the legacy voice system's issue tracker, in its issue layout. Not filed,
+and superseded: the call center (`../../call-center-lab`) is now the source of truth,
+and delivery is built on it in `../../lead-integrations`. One issue per committed phase;
 free-form body templates (variant B) stay in the backlog and get no issue.
 
 Every phase: off by default behind a flag, staging first, a staging test call
@@ -17,7 +18,7 @@ not each re-decide it. For engineers and reviewers of phases 1–5.
 
 **Today:** Destinations live in the account config and are chosen per
 disposition by the voice agent. A Zapier subscription, a firm API key, a
-"connection" or a "recipe" has no agreed home. The lead API (api-3) already has
+"connection" or a "recipe" has no agreed home. The legacy lead API already has
 CRM adapters and an outbox, and nothing says how that relates to the platform.
 
 **After this change:** An engineer starting phase 1 or 2 reads one ADR and knows
@@ -46,12 +47,12 @@ where each concept lives and which states a delivery can be in.
 - Idempotency: one delivery per `(lead_id, destination_id)`; every attempt
   kept; a resend is a new attempt on the same key, sent with the same
   `webhook-id`.
-- Open: how platform delivery relates to api-3's adapters (reuse, call into,
+- Open: how platform delivery relates to the legacy lead API's adapters (reuse, call into,
   or replace). Decide before any direct CRM connector work (phase 5).
 
 **Done when**
 - [ ] ADR merged with the five concepts, the states and the idempotency key
-- [ ] The api-3 relationship is recorded as decided or as an open question with an owner
+- [ ] The relationship with the legacy lead API is recorded as decided or as an open question with an owner
 - [ ] Phases 1–5 issues link to it
 
 ---
@@ -74,10 +75,10 @@ with the reason shown. The UI says "Accepted by Zapier", never "delivered to
 CRM".
 
 **Where**
-- `packages/config-schema/src/webhook-send.ts:97`: `retryableStatus` (add 425; honour `Retry-After`)
-- `apps/worker/src/integrations/destination-delivery.ts`: `sendWorkerDestinations` (410 → switch off; `webhook-id` header)
-- `apps/admin-ui/src/components/forms/destinations-editor.tsx`: delivery log, Resend, URL check, sample built from the firm's call types
-- Prototype: branch `test/zapier-prototype` (variants A and C); `airi/webhook-lab` for the rules
+- The configuration's retryable-status rule: add 425; honour `Retry-After`
+- The worker's destination delivery: 410 → switch off; a `webhook-id` header
+- The admin destinations editor: delivery log, Resend, URL check, sample built from the firm's call types
+- Prototype: a Zapier prototype branch (variants A and C); this lab for the rules
 
 **Approach**
 - Worker: on 410, mark the Destination switched off with a reason and stop
@@ -119,8 +120,8 @@ subscriptions as well as its Destinations, through one sender with one log.
 - New tables (additive migrations): `account_api_keys` (hash, prefix, scopes,
   environment, created_by, last_used_at, revoked_at) and `lead_subscriptions`
   (account, connection, target URL, status, disabled reason, created/removed)
-- New `apps/portal-api` routes: `GET /v1/me`, `POST /v1/hooks`, `DELETE /v1/hooks/:id`, `GET /v1/samples/lead.created`
-- `apps/worker/src/integrations/destination-delivery.ts`: a resolver that merges Destinations and subscriptions into one target list
+- New portal API routes: `GET /v1/me`, `POST /v1/hooks`, `DELETE /v1/hooks/:id`, `GET /v1/samples/lead.created`
+- The worker's destination delivery: a resolver that merges Destinations and subscriptions into one target list
 
 **Approach**
 - Keys: shown once, stored hashed, scoped (`zapier:subscribe` only; a valid key
@@ -133,7 +134,7 @@ subscriptions as well as its Destinations, through one sender with one log.
 - Samples: complete, built from the firm's own call types; never a real caller.
 - Delivery: one key per `(lead_id, target_id)` for both kinds; same retries,
   alerts, log and Resend as phase 1. No second retry or monitoring path.
-- Spec: `airi/webhook-lab` `/v1` routes.
+- Spec: this lab's `/v1` routes.
 
 **Done when**
 - [ ] A key with the wrong scope or a revoked key gets 401/403 on every `/v1` route
@@ -191,8 +192,8 @@ without staff. Starts only after the phase 3 pilot succeeds.
 the Zapier app from a "Connect" button, and sees one status per connection.
 
 **Where**
-- `airi-client-portal`: new Integrations page
-- `apps/portal-api`: key management and connection status for Client Users
+- The client portal: new Integrations page
+- The portal API: key management and connection status for Client Users
 
 **Approach**
 - Statuses we can prove: **Connected** (subscription active), **Waiting for
@@ -216,11 +217,11 @@ the Zapier app from a "Connect" button, and sees one status per connection.
 An evaluation, not a build: choose how direct CRM connections and a public
 Zapier listing should work before writing connectors. For product and engineering.
 
-**Today:** Zapier covers any CRM but adds a step the firm maintains. The lead
-API (api-3) already has adapters for Clio Grow, Lead Docket, Law Ruler and
+**Today:** Zapier covers any CRM but adds a step the firm maintains. The legacy lead
+API already has adapters for Clio Grow, Lead Docket, Law Ruler and
 Lawmatics, with an outbox and retries, outside this platform.
 
-**After this change:** A written decision with evidence: reuse api-3's
+**After this change:** A written decision with evidence: reuse the legacy lead API's
 adapters, build connectors here, or adopt an embedded integration platform
 (Merge, Prismatic); and whether to list the Zapier app publicly (and add OAuth
 or ready-made Zaps).

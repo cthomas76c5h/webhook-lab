@@ -10,5 +10,10 @@ the `.ts` extension.
   ship only as progressive enhancement or with a conditionally loaded fallback.
 - Web guidance: `npx modern-web-guidance@latest search "<topic>"`, then
   `retrieve "<id>"`, before adding UI behavior.
+- **Superseded** by `../../lead-integrations`, which is built on the call center
+  (`../../call-center-lab`) as the source of truth. Keep it as history; build there.
+- **Docs are generic.** Never name legacy internal systems or repositories, their file
+  paths or branches; say "the legacy voice system", "the legacy lead API" and describe
+  the behaviour.
 - User-facing strings say "Answering AI"; never name voice or telephony vendors.
 - Never commit or push unless asked.

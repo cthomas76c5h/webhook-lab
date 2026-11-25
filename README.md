@@ -1,5 +1,12 @@
 # Webhook lab (prototype)
 
+> **Superseded (2026-11-25).** This prototype is no longer maintained. Its ideas
+> (onboarding with versioned approval, the client review, response policy, signing,
+> body templates, the Delivery Center) live on in
+> [`../../lead-integrations`](../../lead-integrations/README.md), which is built on the
+> call center ([`../../call-center-lab`](../../call-center-lab/README.md)) as the source
+> of truth. Start there; read this only as history.
+
 A throwaway service for exploring how Answering AI should deliver leads to
 webhooks — Zapier first, any receiver later. In-memory only; restart wipes it.
 

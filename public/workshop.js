@@ -174,7 +174,7 @@ const DECISIONS = [
 ];
 
 const OBJECTIONS = [
-  { id: 'o1', q: 'What existing capability are we duplicating?', a: 'api-3 already has CRM adapters (Clio Grow, Lead Docket, Law Ruler, Lawmatics) with an outbox. Decide reuse vs replace before any direct connector (phase 5).' },
+  { id: 'o1', q: 'What existing capability are we duplicating?', a: 'The legacy lead API already has CRM adapters (Clio Grow, Lead Docket, Law Ruler, Lawmatics) with an outbox. Decide reuse vs replace before any direct connector (phase 5).' },
   { id: 'o2', q: 'Could a private Zapier app solve 80% of this without a new platform?', a: 'Largely yes; that is V2. The shared foundation is small: keys, subscriptions and one delivery pipeline we need anyway.' },
   { id: 'o3', q: 'Are we turning a receptionist product into a generic automation platform?', a: 'Not if templates and a workflow editor stay out of scope (variant B parked, editor excluded).' },
   { id: 'o4', q: 'Which parts of CRM setup can we genuinely control?', a: 'In V2: the trigger, the sample, delivery and its log. Not: the Zap\'s mapping, whether it runs, or the CRM record.' },
